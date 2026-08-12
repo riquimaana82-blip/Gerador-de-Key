@@ -1,61 +1,82 @@
 -- @NoobZinx - GERADOR DE KEYS (COMPLETO)
 local P = game:GetService("Players")
 local LP = P.LocalPlayer
-local HttpService = game:GetService("HttpService")
 
 if not _G.KeysDatabase then
     _G.KeysDatabase = {}
 end
 
--- ═══════════════════════════════════════════════════════
--- 🔐 SISTEMA DE GERAÇÃO DE KEYS OFFLINE
--- ═══════════════════════════════════════════════════════
-local CHAVE_SECRETA = "NoobZinxSecretKey2024"
-
--- Função para codificar/decodificar usando XOR
-local function codificarXOR(texto, chave)
-    local resultado = {}
-    for i = 1, #texto do
-        local byte = string.byte(texto, i)
-        local chaveByte = string.byte(chave, ((i - 1) % #chave) + 1)
-        table.insert(resultado, string.char(bit32.bxor(byte, chaveByte)))
+-- Função para calcular hash (mesma do painel)
+local function calcularHash(key)
+    local hash = 0
+    for i = 1, #key do
+        hash = (hash * 31 + string.byte(key, i)) % 1000000007
     end
-    return table.concat(resultado)
+    return hash
 end
 
--- Função para codificar em Base64
-local function codificarBase64(dados)
-    local b = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
-    return ((dados:gsub('.', function(x) 
-        local r,b='',x:byte()
-        for i=8,1,-1 do r=r..(b%2^i-b%2^(i-1)>0 and '1' or '0') end
-        return r;
-    end)..'0000'):gsub('%d%d%d?%d?%d?%d?%d?', function(x)
-        if (#x < 6) then return '' end
-        local c=0
-        for i=1,6 do c=c+(x:sub(i,i)=='1' and 2^(6-i) or 0) end
-        return b:sub(c+1,c+1)
-    end)..({ '', '==', '=' })[#dados%3+1])
+-- Função para gerar código aleatório válido
+local function gerarCodigoValido(tipo)
+    local caracteres = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+    local codigo = ""
+    local tentativas = 0
+    
+    repeat
+        codigo = ""
+        for i = 1, 8 do
+            local idx = math.random(1, #caracteres)
+            codigo = codigo .. string.sub(caracteres, idx, idx)
+        end
+        
+        local keyCompleta = "NOOBZINX-" .. tipo .. "-" .. codigo
+        local hash = calcularHash(keyCompleta)
+        local digitoVerificador = hash % 10
+        
+        if tipo == "VIP" then
+            -- VIP precisa ter dígito verificador par
+            if digitoVerificador % 2 == 0 then
+                break
+            end
+        else
+            -- Temporária precisa ter dígito verificador ímpar
+            if digitoVerificador % 2 ~= 0 then
+                break
+            end
+        end
+        
+        tentativas = tentativas + 1
+    until tentativas > 100
+    
+    return codigo
 end
 
--- Função para gerar Key válida entre dispositivos
-local function gerarKeyValida(tipo, duracao)
-    local dados = {
-        tipo = tipo,
-        duracao = duracao, -- em segundos (-1 para VIP permanente)
-        dataCriacao = os.time(),
-        dataExpiracao = nil
-    }
+-- Função para gerar Key única
+local function gerarKeyUnica(tipo)
+    local sufixo = ""
     
-    if tipo ~= "VIP Permanente" then
-        dados.dataExpiracao = os.time() + duracao
+    if tipo == "VIP Permanente" then
+        sufixo = "VIP"
+    else
+        local dias = string.match(tipo, "(%d+)")
+        if dias then
+            sufixo = dias .. "D"
+        else
+            sufixo = "1D"
+        end
     end
     
-    local dadosJSON = HttpService:JSONEncode(dados)
-    local dadosXOR = codificarXOR(dadosJSON, CHAVE_SECRETA)
-    local keyFinal = codificarBase64(dadosXOR)
+    local key = ""
+    local tentativas = 0
+    repeat
+        local codigo = gerarCodigoValido(sufixo)
+        key = "NOOBZINX-" .. sufixo .. "-" .. codigo
+        tentativas = tentativas + 1
+        if tentativas > 100 then
+            break
+        end
+    until _G.KeysDatabase[key] == nil
     
-    return keyFinal
+    return key
 end
 
 local SG = Instance.new("ScreenGui")
@@ -248,17 +269,24 @@ local keyAtual = ""
 
 BtnGerar.MouseButton1Click:Connect(function()
     local tipo = tipoSelecionado
-    local duracao = 0
+    local key = gerarKeyUnica(tipo)
+    keyAtual = key
     
+    local tempo = 0
     if tipo == "VIP Permanente" then
-        duracao = -1
+        tempo = -1
     else
         local dias = tonumber(string.match(tipo, "(%d+)")) or 1
-        duracao = dias * 86400 -- 86400 segundos = 1 dia
+        tempo = dias * 86400
     end
     
-    local key = gerarKeyValida(tipo, duracao)
-    keyAtual = key
+    _G.KeysDatabase[key] = {
+        tipo = tipo,
+        tempoRestante = tempo,
+        usada = false,
+        valida = true,
+        dataCriacao = os.time()
+    }
     
     KeyGerada.Text = "🔑 " .. key
     KeyGerada.TextColor3 = Color3.fromRGB(0, 255, 100)
